@@ -47,7 +47,7 @@
 <body>
 
 <header>
-  <h1>SÀI GÒN<small>một thành phố sống — 64 × 64 ô</small></h1>
+  <h1>SÀI GÒN<small>3D · 64 × 64 ô · nắng thật, bóng đổ thật</small></h1>
 
   <div class="group">
     <button data-kind="flood">🌊 Thuỷ triều</button>
@@ -70,11 +70,19 @@
   <canvas id="cv"></canvas>
   <div id="hud">
     <span id="stat">thành phố nguyên vẹn</span>
-    <span id="hint">kéo để đi · lăn chuột để phóng to · bấm vào bản đồ để dội tên lửa xuống đó</span>
+    <span id="hint">kéo trái để đi · kéo phải để xoay · lăn chuột để phóng to · bấm vào bản đồ để dội tên lửa xuống đó</span>
     <span><b id="time">09:00</b> · <span id="fps"></span></span>
   </div>
 </div>
 
-<script type="module" src="./app.js"></script>
+<script type="importmap">
+{
+  "imports": {
+    "three": "https://cdn.jsdelivr.net/npm/three@0.169.0/build/three.module.js",
+    "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.169.0/examples/jsm/"
+  }
+}
+</script>
+<script type="module" src="./main.js"></script>
 </body>
 </html>
