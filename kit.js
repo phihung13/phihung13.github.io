@@ -10,22 +10,25 @@ import { mergeGeometries } from "three/addons/utils/BufferGeometryUtils.js";
 
 const C = (hex) => new THREE.Color(hex).convertSRGBToLinear();
 
+/* A calm, sun-warmed palette — this is a place to wander, not a warzone. */
 export const PAL = {
-  facade: ["#e8cf9a", "#cfdcc4", "#e6cfc0", "#d8d3c5", "#f0e2bd", "#c8bda6", "#e2cdd3", "#b8c2bc"],
-  trim: "#f4efe2",
-  tile: "#a8543c",
-  tin: "#8d9298",
-  concrete: "#cfc8b8",
-  dark: "#3f3c37",
-  tank: "#9fb0b8",
-  drum: ["#4a6b88", "#8a6338", "#5f6b52"],
-  sign: ["#c4442f", "#3a6491", "#d99a2b", "#3f7d52", "#8f4d80", "#2a7076"],
-  glassDay: "#5f7a8c",
-  wood: "#8a6a3a",
-  leaf: ["#4e7a41", "#5d8a4a", "#67974f"],
-  bark: "#5f4a33",
-  rubble: "#8c8474",
-  char: "#3a3532",
+  facade: ["#f3e2c0", "#dcebd8", "#f6dfd2", "#e7e3d6", "#fbf0d4",
+    "#e3d7c4", "#f2dee4", "#d5e3e6", "#f7e9cf", "#e8ded0"],
+  trim: "#fdf8ee",
+  roof: ["#c46a4e", "#b0553f", "#7f9a92", "#8fa9bd", "#d09a55", "#9c7f6b"],
+  tin: "#a9b0b6",
+  concrete: "#ded7c8",
+  dark: "#4a453e",
+  tank: "#b3c2c8",
+  drum: ["#6e93ad", "#a9814f", "#7d8f6b"],
+  sign: ["#d4695a", "#5b87ad", "#e0aa54", "#639b74", "#a878a0", "#4e9aa0"],
+  glassDay: "#8fa8b8",
+  wood: "#a9834f",
+  leaf: ["#6e9c58", "#84b168", "#5d8a4a", "#98bd77"],
+  bark: "#7a5f42",
+  rubble: "#a49b8c",
+  char: "#4a423c",
+  stone: "#ddd6c6",
 };
 
 /* Boxes and cones come indexed, icosahedra don't — and mergeGeometries refuses to mix the two.
@@ -61,8 +64,10 @@ const rnd = (s, n) => Math.floor((s * 1103515245 + 12345) / 65536) % n;
 /* ── one house prototype ───────────────────────────────────────────── */
 export function makeHouse(seed) {
   const solid = [], glass = [];
-  const W = 0.82, D = 0.82;                       // slightly inset so alleys stay visible
-  const floors = 2 + rnd(seed + 3, 4);
+  // wide enough to shoulder up against next door (a real terrace of shophouses), but shallow,
+  // so the block still opens onto a green courtyard behind
+  const W = 0.94, D = 0.70;
+  const floors = 1 + rnd(seed + 3, 3);            // low-rise: 1–3 storeys, not 2–5
   const fh = 0.52 + rnd(seed + 9, 3) * 0.05;
   const H = floors * fh;
   const col = PAL.facade[rnd(seed + 5, PAL.facade.length)];
@@ -101,10 +106,11 @@ export function makeHouse(seed) {
 
   // roof: tin, tile, or a terrace with a water tank, drums and a garden
   const roof = rnd(seed + 23, 10);
+  const roofCol = PAL.roof[rnd(seed + 29, PAL.roof.length)];   // not every roof is terracotta
   if (roof < 4) {
-    solid.push(pyramid(W * 1.08, 0.26, D * 1.08, 0, H, 0, PAL.tin));
+    solid.push(pyramid(W * 1.22, 0.26, D * 1.22, 0, H, 0, rnd(seed + 31, 2) ? PAL.tin : roofCol));
   } else if (roof < 6) {
-    solid.push(pyramid(W * 1.12, 0.34, D * 1.12, 0, H, 0, PAL.tile));
+    solid.push(pyramid(W * 1.26, 0.34, D * 1.26, 0, H, 0, roofCol));
   } else {
     solid.push(box(W, 0.04, D, 0, H, 0, PAL.concrete));
     solid.push(box(W, 0.10, 0.04, 0, H, D / 2 - 0.02, PAL.concrete));          // parapet
@@ -186,6 +192,58 @@ export function makeSchool(seed) {
     glass.push(box(0.20, 0.24, 0.03, k * 0.33, 0.22 + f * 0.42, 0.72, "#ffd88a"));
   solid.push(box(0.5, 0.05, 0.35, 0, 0.9, 0.85, "#b03e2c"));
   return { solid: mergeGeometries(solid), glass: mergeGeometries(glass) };
+}
+
+/* A quiet corner: paving, a bench, a parasol, pot plants. Somewhere to sit and do nothing. */
+export function makePlaza(seed) {
+  const solid = [
+    box(0.9, 0.05, 0.9, 0, 0, 0, PAL.stone),
+    box(0.34, 0.05, 0.06, -0.18, 0.05, 0.10, PAL.wood),      // ghế đá
+    box(0.06, 0.10, 0.06, -0.32, 0.05, 0.10, PAL.stone),
+    box(0.06, 0.10, 0.06, -0.05, 0.05, 0.10, PAL.stone),
+  ];
+  if (rnd(seed, 2)) {                                         // dù quán cà phê cóc
+    solid.push(box(0.03, 0.44, 0.03, 0.18, 0.05, -0.14, PAL.wood));
+    solid.push(pyramid(0.62, 0.12, 0.62, 0.18, 0.46, -0.14, PAL.sign[rnd(seed + 3, 6)]));
+    for (let k = 0; k < 3; k++)
+      solid.push(box(0.10, 0.10, 0.10, 0.02 + k * 0.14, 0.05, 0.02 + (k % 2) * 0.12, "#7fa8c4"));
+  }
+  for (let k = 0; k < 3; k++) {                               // chậu cây
+    const x = -0.34 + k * 0.30, z = -0.34;
+    solid.push(box(0.13, 0.10, 0.13, x, 0.05, z, "#b98a5e"));
+    solid.push(box(0.16, 0.16, 0.16, x, 0.15, z, PAL.leaf[(seed + k) % 4]));
+  }
+  return { solid: mergeGeometries(solid), glass: null };
+}
+
+/* street furniture that makes a pavement feel lived-in */
+export function makeLamp() {
+  const solid = [
+    box(0.05, 0.9, 0.05, 0, 0, 0, "#9a9385"),
+    box(0.22, 0.04, 0.05, 0.10, 0.90, 0, "#9a9385"),
+  ];
+  const glass = [box(0.12, 0.08, 0.10, 0.20, 0.86, 0, "#ffe9b0")];
+  return { solid: mergeGeometries(solid), glass: mergeGeometries(glass) };
+}
+export function makeBench() {
+  return {
+    solid: mergeGeometries([
+      box(0.40, 0.04, 0.14, 0, 0.10, 0, PAL.wood),
+      box(0.40, 0.14, 0.03, 0, 0.14, -0.06, PAL.wood),
+      box(0.04, 0.10, 0.12, -0.17, 0, 0, "#9a9385"),
+      box(0.04, 0.10, 0.12, 0.17, 0, 0, "#9a9385"),
+    ]),
+    glass: null,
+  };
+}
+export function makePlanter(seed) {
+  return {
+    solid: mergeGeometries([
+      box(0.20, 0.12, 0.20, 0, 0, 0, "#b98a5e"),
+      box(0.24, 0.22, 0.24, 0, 0.12, 0, PAL.leaf[seed % 4]),
+    ]),
+    glass: null,
+  };
 }
 
 export function makeTree(seed) {

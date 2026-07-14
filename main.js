@@ -6,7 +6,8 @@ import {
 } from "./world.js";
 import {
   makeHouse, makeTower, makePagoda, makeMarket, makeGov, makeSchool, makeTree,
-  makeRubble, makeCrater, makeBike, makeCar, makeBus, makeBoat, makePerson, PAL,
+  makeRubble, makeCrater, makeBike, makeCar, makeBus, makeBoat, makePerson,
+  makePlaza, makeLamp, makeBench, makePlanter, PAL,
 } from "./kit.js";
 
 const canvas = document.getElementById("cv");
@@ -24,6 +25,11 @@ scene.fog = new THREE.Fog(0xcfd8dd, 130, 235);
 
 const HALF = GRID / 2;
 const cell = (gx, gy) => [gx - HALF + 0.5, gy - HALF + 0.5];   // grid → world (x, z)
+
+/* Only cells that touch a street get paved. Everything deeper in the block is grass —
+   otherwise the whole district reads as one giant concrete apron. */
+const nearRoad = (gx, gy) =>
+  isRoad(gx + 1, gy) || isRoad(gx - 1, gy) || isRoad(gx, gy + 1) || isRoad(gx, gy - 1);
 
 /* ── camera: true isometric, orthographic ─────────────────────────── */
 let zoom = 13, yaw = Math.PI / 4;      // start down in the streets, not up in orbit
@@ -74,8 +80,9 @@ for (let gy = 0; gy < GRID; gy++) for (let gx = 0; gx < GRID; gx++) {
   const water = canal[gy][gx] && !bridge[gy][gx];
   const rd = road[gy][gx] && !water;
   q.fillStyle = water ? ((gx + gy) % 2 ? "#3f7794" : "#376c88")
-    : rd ? ((gx + gy) % 2 ? "#5f5a53" : "#57534c")
-      : ((gx * 7 + gy * 3) % 11 === 0 ? "#b0a894" : "#b8b1a0");
+    : rd ? ((gx + gy) % 2 ? "#67625b" : "#5f5a53")
+      : nearRoad(gx, gy) ? "#cfc8b6"                       // pavement (the slab sits on top)
+        : ((gx * 7 + gy * 3) % 7 === 0 ? "#7aa062" : "#84ab68");   // grassy courtyards
   q.fillRect(gx * px, gy * px, px + 1, px + 1);
   if (rd) {                                            // lane markings + kerb
     const ew = isRoad(gx - 1, gy) && isRoad(gx + 1, gy);
@@ -130,6 +137,7 @@ protos.push({ kind: "market", geo: makeMarket(7) });
 protos.push({ kind: "gov", geo: makeGov(9) });
 protos.push({ kind: "school", geo: makeSchool(11) });
 protos.push({ kind: "garden", geo: makeTree(2) });
+protos.push({ kind: "plaza", geo: makePlaza(4) });
 const RUBBLE = { geo: makeRubble(13) }, CRATER = { geo: makeCrater(17) };
 
 const groups = [];                            // one InstancedMesh pair per prototype
@@ -165,13 +173,23 @@ function rebuildCity() {
     const [x, z] = cell(p.gx, p.gy);
     const cx = x + (p.w - 1) / 2, cz = z + (p.d - 1) / 2;
 
-    if (dmg.craters.has(k)) { push(craterGroup, cx, cz, 0, 1); continue; }
-    if (dmg.collapsed.has(k)) { push(rubbleGroup, cx, cz, (p.seed % 4) * 0.4, 1); continue; }
+    const y = nearRoad(p.gx, p.gy) ? WALK_H : 0;    // on the kerb, or out on the grass
+
+    if (dmg.craters.has(k)) { push(craterGroup, cx, cz, 0, 1, false, y); continue; }
+    if (dmg.collapsed.has(k)) { push(rubbleGroup, cx, cz, (p.seed % 4) * 0.4, 1, false, y); continue; }
 
     const proto = protoOf(p);
     const burnt = dmg.charred.has(k);
-    push(proto.group, cx, cz, (p.seed % 4) * Math.PI / 2,
-      p.kind === "house" ? (p.w > 1 || p.d > 1 ? 1.15 : 1) : 1, burnt);
+    // the shopfront is modelled on the +Z face, so turn the house until that face meets the street
+    let rot = (p.seed % 4) * Math.PI / 2;
+    if (p.kind === "house") {
+      if (isRoad(p.gx, p.gy + p.d)) rot = 0;
+      else if (isRoad(p.gx, p.gy - 1)) rot = Math.PI;
+      else if (isRoad(p.gx + p.w, p.gy)) rot = Math.PI / 2;
+      else if (isRoad(p.gx - 1, p.gy)) rot = -Math.PI / 2;
+    }
+    push(proto.group, cx, cz, rot,
+      p.kind === "house" ? (p.w > 1 || p.d > 1 ? 1.1 : 1) : 1, burnt, y);
   }
 
   for (const grp of [...protos.map(p => p.group), rubbleGroup, craterGroup]) {
@@ -186,8 +204,9 @@ function rebuildCity() {
 }
 const CHAR = new THREE.Color(0x4a423c).convertSRGBToLinear();
 const WHITE = new THREE.Color(0xffffff);
-function push(grp, x, z, rot, scale, burnt = false) {
-  dummy.position.set(x, 0, z);
+const WALK_H = 0.09;                       // buildings stand ON the pavement, not in the road
+function push(grp, x, z, rot, scale, burnt = false, y = WALK_H) {
+  dummy.position.set(x, y, z);
   dummy.rotation.set(0, rot, 0);
   dummy.scale.set(scale, scale, scale);
   dummy.updateMatrix();
@@ -201,26 +220,81 @@ function push(grp, x, z, rot, scale, burnt = false) {
   grp.n++;
 }
 
-/* trees along the pavements */
+/* ── the pavement: a real raised slab with a kerb, not a colour on a texture ─────── */
 {
-  const treeGeo = makeTree(1);
-  const trees = new THREE.InstancedMesh(treeGeo.solid, MAT, 1200);
-  trees.castShadow = true;
+  const slab = new THREE.BoxGeometry(1, 0.09, 1);
+  slab.translate(0, 0.045, 0);
+  const cols = new Float32Array(slab.attributes.position.count * 3);
+  const cc = new THREE.Color(PAL.stone).convertSRGBToLinear();
+  for (let i = 0; i < slab.attributes.position.count; i++) {
+    cols[i * 3] = cc.r; cols[i * 3 + 1] = cc.g; cols[i * 3 + 2] = cc.b;
+  }
+  slab.setAttribute("color", new THREE.BufferAttribute(cols, 3));
+
+  const walks = new THREE.InstancedMesh(slab, MAT, GRID * GRID);
+  walks.receiveShadow = true;
+  walks.castShadow = true;
   let n = 0;
+  for (let gy = 0; gy < GRID; gy++) for (let gx = 0; gx < GRID; gx++) {
+    if (road[gy][gx] || canal[gy][gx] || !nearRoad(gx, gy)) continue;   // only along the street
+    const [x, z] = cell(gx, gy);
+    dummy.position.set(x, 0, z);
+    dummy.rotation.set(0, 0, 0);
+    dummy.scale.set(1, 1, 1);
+    dummy.updateMatrix();
+    walks.setMatrixAt(n++, dummy.matrix);
+  }
+  walks.count = n;
+  scene.add(walks);
+}
+
+/* trees, lamps, benches and pot plants scattered along the kerb */
+{
+  const kit = [
+    { geo: makeTree(1), max: 1600, scale: () => 0.9 + Math.random() * 0.35 },
+    { geo: makeLamp(), max: 400, scale: () => 1 },
+    { geo: makeBench(), max: 300, scale: () => 1 },
+    { geo: makePlanter(2), max: 400, scale: () => 1 },
+  ];
+  const meshes = kit.map(k => {
+    const solid = new THREE.InstancedMesh(k.geo.solid, MAT, k.max);
+    solid.castShadow = true; solid.receiveShadow = true; solid.count = 0;
+    scene.add(solid);
+    let glass = null;
+    if (k.geo.glass) {
+      glass = new THREE.InstancedMesh(k.geo.glass, GLASS, k.max);
+      glass.count = 0;
+      scene.add(glass);
+    }
+    return { solid, glass, n: 0 };
+  });
+
   for (let gy = 0; gy < GRID; gy++) for (let gx = 0; gx < GRID; gx++) {
     if (road[gy][gx] || canal[gy][gx]) continue;
     if (!(isRoad(gx + 1, gy) || isRoad(gx, gy + 1) || isRoad(gx - 1, gy) || isRoad(gx, gy - 1))) continue;
-    if ((gx * 13 + gy * 7) % 3 !== 0 || n >= 1200) continue;
+    const s = (gx * 13 + gy * 7) % 6;
+    const which = s === 0 || s === 3 ? 0 : s === 1 ? 1 : s === 4 ? 2 : s === 5 ? 3 : -1;
+    if (which < 0) continue;
+    const m = meshes[which];
+    if (m.n >= kit[which].max) continue;
     const [x, z] = cell(gx, gy);
-    dummy.position.set(x + 0.32, 0, z + 0.32);
-    dummy.rotation.set(0, (gx * gy) % 4, 0);
-    const s = 0.85 + ((gx + gy) % 3) * 0.12;
-    dummy.scale.set(s, s, s);
+    // hug whichever edge actually faces the street
+    const ox = isRoad(gx + 1, gy) ? 0.40 : isRoad(gx - 1, gy) ? -0.40 : 0;
+    const oz = isRoad(gx, gy + 1) ? 0.40 : isRoad(gx, gy - 1) ? -0.40 : 0;
+    dummy.position.set(x + ox, 0.09, z + oz);
+    dummy.rotation.set(0, ((gx * gy) % 4) * Math.PI / 2, 0);
+    const sc = kit[which].scale();
+    dummy.scale.set(sc, sc, sc);
     dummy.updateMatrix();
-    trees.setMatrixAt(n++, dummy.matrix);
+    m.solid.setMatrixAt(m.n, dummy.matrix);
+    if (m.glass) m.glass.setMatrixAt(m.n, dummy.matrix);
+    m.n++;
   }
-  trees.count = n;
-  scene.add(trees);
+  for (const m of meshes) {
+    m.solid.count = m.n;
+    m.solid.instanceMatrix.needsUpdate = true;
+    if (m.glass) { m.glass.count = m.n; m.glass.instanceMatrix.needsUpdate = true; }
+  }
 }
 
 /* flooded tiles: a rising sheet of water, one instance per drowned cell */
@@ -288,20 +362,20 @@ for (const lane of lanes) {
   }
 }
 lanes.forEach((lane, li) => {
-  const N = 5 + (li % 3);
+  const N = 2 + (li % 2);                       // a sleepy street, not rush hour
   for (let i = 0; i < N; i++) {
-    const roll = (i + li) % 7;
+    const roll = (i + li) % 5;
     const mesh = roll === 0 ? carMeshes[(i + li) % carMeshes.length]
       : roll === 3 ? busMesh : bikeMeshes[(i * 3 + li) % bikeMeshes.length];
     agents.push({
-      lane, mesh, t: i / N, off: (i % 2 ? 1 : -1) * 0.16,
-      v: (0.03 + (i % 3) * 0.008) / Math.max(1, lane.len / 30), y: 0,
+      lane, mesh, t: i / N, off: (i % 2 ? 1 : -1) * 0.22,
+      v: (0.016 + (i % 3) * 0.004) / Math.max(1, lane.len / 30), y: 0,
     });
   }
-  for (let i = 0; i < 2; i++)
+  for (let i = 0; i < 3; i++)                   // people, ambling on the raised pavement
     agents.push({
-      lane, mesh: pedMeshes[(i + li) % pedMeshes.length], t: (i + .3) / 2,
-      off: (i % 2 ? 1 : -1) * 0.62, v: 0.006 / Math.max(1, lane.len / 30), y: 0,
+      lane, mesh: pedMeshes[(i + li) % pedMeshes.length], t: (i + .3) / 3,
+      off: (i % 2 ? 1 : -1) * 0.78, v: 0.004 / Math.max(1, lane.len / 30), y: WALK_H,
     });
 });
 // boats down the canal
@@ -331,7 +405,10 @@ function laneAt(lane, t, off) {
   const z = s.a.y + (s.b.y - s.a.y) * u;
   const dx = s.b.x - s.a.x, dz = s.b.y - s.a.y;
   const L = Math.hypot(dx, dz) || 1;
-  return [x - dz / L * off, z + dx / L * off, Math.atan2(dx, dz)];
+  // The vehicles are modelled lying along +X. A rotation of θ about Y sends local +X to
+  // (cosθ, 0, −sinθ), so to point it down the lane we need θ = atan2(−dz, dx).
+  // Using atan2(dx, dz) — which is what this was — turned every car 90° and they drove sideways.
+  return [x - dz / L * off, z + dx / L * off, Math.atan2(-dz, dx)];
 }
 
 /* ── disasters ────────────────────────────────────────────────────── */

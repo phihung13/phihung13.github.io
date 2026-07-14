@@ -140,13 +140,34 @@ for (const [gx, gy, w, d, kind] of LANDMARKS)
 for (const [gx, gy] of [[22, 12], [24, 13], [21, 15], [25, 16], [23, 18], [27, 12]])
   if (free(gx, gy, 1, 1)) place(gx, gy, 1, 1, "tower", gx * 7 + gy * 13);
 
+/* A neighbourhood you'd want to walk through, not a termite mound.
+ *
+ * Houses only line the STREET — the middle of each block is left as courtyards, gardens and
+ * yards. Roughly a third of every block breathes. */
+function facesStreet(gx, gy) {
+  return isRoadCell(gx + 1, gy) || isRoadCell(gx - 1, gy)
+    || isRoadCell(gx, gy + 1) || isRoadCell(gx, gy - 1);
+}
+const isRoadCell = (x, y) => inside(x, y) && road[y][x];
+
 for (let depth = 0; depth < 2 * GRID; depth++) {
   for (let gx = 0; gx < GRID; gx++) {
     const gy = depth - gx;
     if (!inside(gx, gy) || road[gy][gx] || canal[gy][gx] || taken[gy][gx]) continue;
     const seed = gx * 37 + gy * 19 + 5;
-    const roll = rnd(seed, 14);
-    if (roll === 0) { place(gx, gy, 1, 1, "garden", seed); continue; }
+
+    // deep inside a block: no house at all — a yard, a stand of trees, a little garden
+    if (!facesStreet(gx, gy)) {
+      if (rnd(seed + 3, 3) === 0) place(gx, gy, 1, 1, "garden", seed);
+      else taken[gy][gx] = true;                       // simply left as open ground
+      continue;
+    }
+
+    // even on the street, leave gaps: a corner garden, a courtyard, somewhere to sit
+    const roll = rnd(seed, 10);
+    if (roll < 2) { place(gx, gy, 1, 1, "garden", seed); continue; }
+    if (roll === 2) { place(gx, gy, 1, 1, "plaza", seed); continue; }
+
     const shape = rnd(seed + 41, 10);
     let w = 1, d = 1;
     if (shape < 2 && free(gx, gy, 2, 1)) w = 2;
